@@ -134,7 +134,7 @@ public class AmqpNioTransport extends TcpTransport {
             }
         } catch (IOException e) {
             onException(e);
-        } catch (Throwable e) {
+        } catch (Exception e) {
             onException(IOExceptionSupport.create(e));
         }
     }
