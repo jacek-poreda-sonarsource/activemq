@@ -85,8 +85,8 @@ public class AmqpNioTransport extends TcpTransport {
             @Override
             public void onError(SelectorSelection selection, Throwable error) {
                 LOG.trace("Error detected: {}", error.getMessage());
-                if (error instanceof IOException) {
-                    onException((IOException) error);
+                if (error instanceof IOException ioException) {
+                    onException(ioException);
                 } else {
                     onException(IOExceptionSupport.create(error));
                 }
