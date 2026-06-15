@@ -31,7 +31,6 @@ import org.apache.activemq.transport.AbstractInactivityMonitor;
 import org.apache.activemq.transport.InactivityIOException;
 import org.apache.activemq.transport.Transport;
 import org.apache.activemq.transport.TransportFilter;
-import org.apache.activemq.wireformat.WireFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,23 +85,20 @@ public class AmqpInactivityMonitor extends TransportFilter {
         public void run() {
             if (keepAliveTask != null && !ASYNC_TASKS.isShutdown()) {
                 try {
-                    ASYNC_TASKS.execute(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                long nextIdleUpdate = amqpTransport.keepAlive();
-                                if (nextIdleUpdate > 0) {
-                                    synchronized (AmqpInactivityMonitor.this) {
-                                        if (keepAliveTask != null) {
-                                            keepAliveTask = new SchedulerTimerTask(keepAlive);
-                                            KEEPALIVE_TASK_TIMER.schedule(keepAliveTask, nextIdleUpdate);
-                                        }
+                    ASYNC_TASKS.execute(() -> {
+                        try {
+                            long nextIdleUpdate = amqpTransport.keepAlive();
+                            if (nextIdleUpdate > 0) {
+                                synchronized (AmqpInactivityMonitor.this) {
+                                    if (keepAliveTask != null) {
+                                        keepAliveTask = new SchedulerTimerTask(keepAlive);
+                                        KEEPALIVE_TASK_TIMER.schedule(keepAliveTask, nextIdleUpdate);
                                     }
                                 }
-                            } catch (Exception ex) {
-                                onException(new InactivityIOException(
-                                    "Exception while performing idle checks for connection: " + next.getRemoteAddress()));
                             }
+                        } catch (Exception ex) {
+                            onException(new InactivityIOException(
+                                "Exception while performing idle checks for connection: " + next.getRemoteAddress()));
                         }
                     });
                 } catch (RejectedExecutionException ex) {
@@ -115,7 +111,7 @@ public class AmqpInactivityMonitor extends TransportFilter {
         }
     };
 
-    public AmqpInactivityMonitor(Transport next, WireFormat wireFormat) {
+    public AmqpInactivityMonitor(Transport next) {
         super(next);
     }
 

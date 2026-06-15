@@ -81,7 +81,7 @@ public class AmqpWSTransportFactory extends TransportFactory implements BrokerSe
     }
 
     protected Transport createInactivityMonitor(AmqpTransportFilter transport, WireFormat format) {
-        AmqpInactivityMonitor monitor = new AmqpInactivityMonitor(transport, format);
+        AmqpInactivityMonitor monitor = new AmqpInactivityMonitor(transport);
         transport.setInactivityMonitor(monitor);
         return monitor;
     }
