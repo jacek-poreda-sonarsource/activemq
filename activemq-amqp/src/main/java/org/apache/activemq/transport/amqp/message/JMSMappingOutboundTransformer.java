@@ -125,75 +125,23 @@ public class JMSMappingOutboundTransformer implements OutboundTransformer {
             return null;
         }
 
-        long messageFormat = 0;
-        Header header = null;
-        Properties properties = null;
-        Map<Symbol, Object> daMap = null;
-        Map<Symbol, Object> maMap = null;
-        Map<String,Object> apMap = null;
-        Map<Object, Object> footerMap = null;
-
+        TransformState state = new TransformState();
         Section body = convertBody(message);
 
+        populateHeader(message, state);
+        populateProperties(message, state);
+        processMessageEntries(message, state);
+
+        return encode(state, body);
+    }
+
+    private void populateHeader(ActiveMQMessage message, TransformState state) {
         if (message.isPersistent()) {
-            if (header == null) {
-                header = new Header();
-            }
-            header.setDurable(true);
+            state.ensureHeader().setDurable(true);
         }
         byte priority = message.getPriority();
         if (priority != Message.DEFAULT_PRIORITY) {
-            if (header == null) {
-                header = new Header();
-            }
-            header.setPriority(UnsignedByte.valueOf(priority));
-        }
-        String type = message.getType();
-        if (type != null) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setSubject(type);
-        }
-        MessageId messageId = message.getMessageId();
-        if (messageId != null) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setMessageId(getOriginalMessageId(message));
-        }
-        ActiveMQDestination destination = message.getDestination();
-        if (destination != null) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setTo(destination.getQualifiedName());
-            if (maMap == null) {
-                maMap = new HashMap<>();
-            }
-            maMap.put(JMS_DEST_TYPE_MSG_ANNOTATION, destinationType(destination));
-        }
-        ActiveMQDestination replyTo = message.getReplyTo();
-        if (replyTo != null) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setReplyTo(replyTo.getQualifiedName());
-            if (maMap == null) {
-                maMap = new HashMap<>();
-            }
-            maMap.put(JMS_REPLY_TO_TYPE_MSG_ANNOTATION, destinationType(replyTo));
-        }
-        String correlationId = message.getCorrelationId();
-        if (correlationId != null) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            try {
-                properties.setCorrelationId(AMQPMessageIdHelper.INSTANCE.toIdObject(correlationId));
-            } catch (AmqpProtocolException e) {
-                properties.setCorrelationId(correlationId);
-            }
+            state.ensureHeader().setPriority(UnsignedByte.valueOf(priority));
         }
         long expiration = message.getExpiration();
         if (expiration != 0) {
@@ -201,55 +149,65 @@ public class JMSMappingOutboundTransformer implements OutboundTransformer {
             if (ttl < 0) {
                 ttl = 1;
             }
-
-            if (header == null) {
-                header = new Header();
-            }
-            header.setTtl(new UnsignedInteger((int) ttl));
-
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setAbsoluteExpiryTime(new Date(expiration));
+            state.ensureHeader().setTtl(new UnsignedInteger((int) ttl));
         }
-        long timeStamp = message.getTimestamp();
-        if (timeStamp != 0) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setCreationTime(new Date(timeStamp));
-        }
-
         // JMSX Message Properties
         int deliveryCount = message.getRedeliveryCounter();
         if (deliveryCount > 0) {
-            if (header == null) {
-                header = new Header();
+            state.ensureHeader().setDeliveryCount(UnsignedInteger.valueOf(deliveryCount));
+        }
+    }
+
+    private void populateProperties(ActiveMQMessage message, TransformState state) {
+        String type = message.getType();
+        if (type != null) {
+            state.ensureProperties().setSubject(type);
+        }
+        MessageId messageId = message.getMessageId();
+        if (messageId != null) {
+            state.ensureProperties().setMessageId(getOriginalMessageId(message));
+        }
+        ActiveMQDestination destination = message.getDestination();
+        if (destination != null) {
+            state.ensureProperties().setTo(destination.getQualifiedName());
+            state.ensureMaMap().put(JMS_DEST_TYPE_MSG_ANNOTATION, destinationType(destination));
+        }
+        ActiveMQDestination replyTo = message.getReplyTo();
+        if (replyTo != null) {
+            state.ensureProperties().setReplyTo(replyTo.getQualifiedName());
+            state.ensureMaMap().put(JMS_REPLY_TO_TYPE_MSG_ANNOTATION, destinationType(replyTo));
+        }
+        String correlationId = message.getCorrelationId();
+        if (correlationId != null) {
+            try {
+                state.ensureProperties().setCorrelationId(AMQPMessageIdHelper.INSTANCE.toIdObject(correlationId));
+            } catch (AmqpProtocolException e) {
+                state.ensureProperties().setCorrelationId(correlationId);
             }
-            header.setDeliveryCount(UnsignedInteger.valueOf(deliveryCount));
+        }
+        long expiration = message.getExpiration();
+        if (expiration != 0) {
+            state.ensureProperties().setAbsoluteExpiryTime(new Date(expiration));
+        }
+        long timeStamp = message.getTimestamp();
+        if (timeStamp != 0) {
+            state.ensureProperties().setCreationTime(new Date(timeStamp));
         }
         String userId = message.getUserID();
         if (userId != null) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setUserId(new Binary(userId.getBytes(StandardCharsets.UTF_8)));
+            state.ensureProperties().setUserId(new Binary(userId.getBytes(StandardCharsets.UTF_8)));
         }
         String groupId = message.getGroupID();
         if (groupId != null) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setGroupId(groupId);
+            state.ensureProperties().setGroupId(groupId);
         }
         int groupSequence = message.getGroupSequence();
         if (groupSequence > 0) {
-            if (properties == null) {
-                properties = new Properties();
-            }
-            properties.setGroupSequence(UnsignedInteger.valueOf(groupSequence));
+            state.ensureProperties().setGroupSequence(UnsignedInteger.valueOf(groupSequence));
         }
+    }
 
+    private void processMessageEntries(ActiveMQMessage message, TransformState state) throws Exception {
         final Map<String, Object> entries;
         try {
             entries = message.getProperties();
@@ -262,69 +220,7 @@ public class JMSMappingOutboundTransformer implements OutboundTransformer {
             Object value = entry.getValue();
 
             if (key.startsWith(JMS_AMQP_PREFIX)) {
-                if (key.startsWith(NATIVE, JMS_AMQP_PREFIX_LENGTH)) {
-                    // skip transformer appended properties
-                    continue;
-                } else if (key.startsWith(ORIGINAL_ENCODING, JMS_AMQP_PREFIX_LENGTH)) {
-                    // skip transformer appended properties
-                    continue;
-                } else if (key.startsWith(MESSAGE_FORMAT, JMS_AMQP_PREFIX_LENGTH)) {
-                    messageFormat = (long) TypeConversionSupport.convert(entry.getValue(), Long.class);
-                    continue;
-                } else if (key.startsWith(HEADER, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (header == null) {
-                        header = new Header();
-                    }
-                    continue;
-                } else if (key.startsWith(PROPERTIES, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (properties == null) {
-                        properties = new Properties();
-                    }
-                    continue;
-                } else if (key.startsWith(MESSAGE_ANNOTATION_PREFIX, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (maMap == null) {
-                        maMap = new HashMap<>();
-                    }
-                    String name = key.substring(JMS_AMQP_MESSAGE_ANNOTATION_PREFIX.length());
-                    maMap.put(Symbol.valueOf(name), value);
-                    continue;
-                } else if (key.startsWith(FIRST_ACQUIRER, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (header == null) {
-                        header = new Header();
-                    }
-                    header.setFirstAcquirer((boolean) TypeConversionSupport.convert(value, Boolean.class));
-                    continue;
-                } else if (key.startsWith(CONTENT_TYPE, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (properties == null) {
-                        properties = new Properties();
-                    }
-                    properties.setContentType(Symbol.getSymbol((String) TypeConversionSupport.convert(value, String.class)));
-                    continue;
-                } else if (key.startsWith(CONTENT_ENCODING, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (properties == null) {
-                        properties = new Properties();
-                    }
-                    properties.setContentEncoding(Symbol.getSymbol((String) TypeConversionSupport.convert(value, String.class)));
-                    continue;
-                } else if (key.startsWith(REPLYTO_GROUP_ID, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (properties == null) {
-                        properties = new Properties();
-                    }
-                    properties.setReplyToGroupId((String) TypeConversionSupport.convert(value, String.class));
-                    continue;
-                } else if (key.startsWith(DELIVERY_ANNOTATION_PREFIX, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (daMap == null) {
-                        daMap = new HashMap<>();
-                    }
-                    String name = key.substring(JMS_AMQP_DELIVERY_ANNOTATION_PREFIX.length());
-                    daMap.put(Symbol.valueOf(name), value);
-                    continue;
-                } else if (key.startsWith(FOOTER_PREFIX, JMS_AMQP_PREFIX_LENGTH)) {
-                    if (footerMap == null) {
-                        footerMap = new HashMap<>();
-                    }
-                    String name = key.substring(JMS_AMQP_FOOTER_PREFIX.length());
-                    footerMap.put(Symbol.valueOf(name), value);
+                if (processAmqpEntry(key, value, state)) {
                     continue;
                 }
             } else if (key.startsWith(AMQ_SCHEDULED_MESSAGE_PREFIX )) {
@@ -334,47 +230,142 @@ public class JMSMappingOutboundTransformer implements OutboundTransformer {
 
             // The property didn't map into any other slot so we store it in the
             // Application Properties section of the message.
-            if (apMap == null) {
-                apMap = new HashMap<>();
-            }
-            apMap.put(key, value);
+            state.ensureApMap().put(key, value);
 
             int messageType = message.getDataStructureType();
             if (messageType == CommandTypes.ACTIVEMQ_MESSAGE) {
                 // Type of command to recognize advisory message
                 Object data = message.getDataStructure();
                 if(data != null) {
-                    apMap.put("ActiveMqDataStructureType", data.getClass().getSimpleName());
+                    state.apMap.put("ActiveMqDataStructureType", data.getClass().getSimpleName());
                 }
             }
         }
+    }
 
+    private boolean processAmqpEntry(String key, Object value, TransformState state) {
+        if (key.startsWith(NATIVE, JMS_AMQP_PREFIX_LENGTH)) {
+            // skip transformer appended properties
+            return true;
+        } else if (key.startsWith(ORIGINAL_ENCODING, JMS_AMQP_PREFIX_LENGTH)) {
+            // skip transformer appended properties
+            return true;
+        } else if (key.startsWith(MESSAGE_FORMAT, JMS_AMQP_PREFIX_LENGTH)) {
+            state.messageFormat = (long) TypeConversionSupport.convert(value, Long.class);
+            return true;
+        } else if (key.startsWith(HEADER, JMS_AMQP_PREFIX_LENGTH)) {
+            state.ensureHeader();
+            return true;
+        } else if (key.startsWith(PROPERTIES, JMS_AMQP_PREFIX_LENGTH)) {
+            state.ensureProperties();
+            return true;
+        } else if (key.startsWith(MESSAGE_ANNOTATION_PREFIX, JMS_AMQP_PREFIX_LENGTH)) {
+            String name = key.substring(JMS_AMQP_MESSAGE_ANNOTATION_PREFIX.length());
+            state.ensureMaMap().put(Symbol.valueOf(name), value);
+            return true;
+        } else if (key.startsWith(FIRST_ACQUIRER, JMS_AMQP_PREFIX_LENGTH)) {
+            state.ensureHeader().setFirstAcquirer((boolean) TypeConversionSupport.convert(value, Boolean.class));
+            return true;
+        } else if (key.startsWith(CONTENT_TYPE, JMS_AMQP_PREFIX_LENGTH)) {
+            state.ensureProperties().setContentType(Symbol.getSymbol((String) TypeConversionSupport.convert(value, String.class)));
+            return true;
+        } else if (key.startsWith(CONTENT_ENCODING, JMS_AMQP_PREFIX_LENGTH)) {
+            state.ensureProperties().setContentEncoding(Symbol.getSymbol((String) TypeConversionSupport.convert(value, String.class)));
+            return true;
+        } else if (key.startsWith(REPLYTO_GROUP_ID, JMS_AMQP_PREFIX_LENGTH)) {
+            state.ensureProperties().setReplyToGroupId((String) TypeConversionSupport.convert(value, String.class));
+            return true;
+        } else if (key.startsWith(DELIVERY_ANNOTATION_PREFIX, JMS_AMQP_PREFIX_LENGTH)) {
+            String name = key.substring(JMS_AMQP_DELIVERY_ANNOTATION_PREFIX.length());
+            state.ensureDaMap().put(Symbol.valueOf(name), value);
+            return true;
+        } else if (key.startsWith(FOOTER_PREFIX, JMS_AMQP_PREFIX_LENGTH)) {
+            String name = key.substring(JMS_AMQP_FOOTER_PREFIX.length());
+            state.ensureFooterMap().put(Symbol.valueOf(name), value);
+            return true;
+        }
+        return false;
+    }
+
+    private EncodedMessage encode(TransformState state, Section body) {
         final AmqpWritableBuffer buffer = new AmqpWritableBuffer();
         encoder.setByteBuffer(buffer);
 
-        if (header != null) {
-            encoder.writeObject(header);
+        if (state.header != null) {
+            encoder.writeObject(state.header);
         }
-        if (daMap != null) {
-            encoder.writeObject(new DeliveryAnnotations(daMap));
+        if (state.daMap != null) {
+            encoder.writeObject(new DeliveryAnnotations(state.daMap));
         }
-        if (maMap != null) {
-            encoder.writeObject(new MessageAnnotations(maMap));
+        if (state.maMap != null) {
+            encoder.writeObject(new MessageAnnotations(state.maMap));
         }
-        if (properties != null) {
-            encoder.writeObject(properties);
+        if (state.properties != null) {
+            encoder.writeObject(state.properties);
         }
-        if (apMap != null) {
-            encoder.writeObject(new ApplicationProperties(apMap));
+        if (state.apMap != null) {
+            encoder.writeObject(new ApplicationProperties(state.apMap));
         }
         if (body != null) {
             encoder.writeObject(body);
         }
-        if (footerMap != null) {
-            encoder.writeObject(new Footer(footerMap));
+        if (state.footerMap != null) {
+            encoder.writeObject(new Footer(state.footerMap));
         }
 
-        return new EncodedMessage(messageFormat, buffer.getArray(), 0, buffer.getArrayLength());
+        return new EncodedMessage(state.messageFormat, buffer.getArray(), 0, buffer.getArrayLength());
+    }
+
+    private static class TransformState {
+        long messageFormat = 0;
+        Header header = null;
+        Properties properties = null;
+        Map<Symbol, Object> daMap = null;
+        Map<Symbol, Object> maMap = null;
+        Map<String, Object> apMap = null;
+        Map<Object, Object> footerMap = null;
+
+        Header ensureHeader() {
+            if (header == null) {
+                header = new Header();
+            }
+            return header;
+        }
+
+        Properties ensureProperties() {
+            if (properties == null) {
+                properties = new Properties();
+            }
+            return properties;
+        }
+
+        Map<Symbol, Object> ensureMaMap() {
+            if (maMap == null) {
+                maMap = new HashMap<>();
+            }
+            return maMap;
+        }
+
+        Map<Symbol, Object> ensureDaMap() {
+            if (daMap == null) {
+                daMap = new HashMap<>();
+            }
+            return daMap;
+        }
+
+        Map<String, Object> ensureApMap() {
+            if (apMap == null) {
+                apMap = new HashMap<>();
+            }
+            return apMap;
+        }
+
+        Map<Object, Object> ensureFooterMap() {
+            if (footerMap == null) {
+                footerMap = new HashMap<>();
+            }
+            return footerMap;
+        }
     }
 
     private Section convertBody(ActiveMQMessage message) throws JMSException {
@@ -391,36 +382,36 @@ public class JMSMappingOutboundTransformer implements OutboundTransformer {
         int messageType = message.getDataStructureType();
 
         if (messageType == CommandTypes.ACTIVEMQ_MESSAGE) {
-        	Object data = message.getDataStructure();
+            Object data = message.getDataStructure();
             if (data instanceof ConnectionInfo) {
-    			ConnectionInfo connectionInfo = (ConnectionInfo)data;
-        		final HashMap<String, Object> connectionMap = new LinkedHashMap<String, Object>();
-        		
-        		connectionMap.put("ConnectionId", connectionInfo.getConnectionId().getValue());
-        		connectionMap.put("ClientId", connectionInfo.getClientId());
-        		connectionMap.put("ClientIp", connectionInfo.getClientIp());
-        		connectionMap.put("UserName", connectionInfo.getUserName());
-        		connectionMap.put("BrokerMasterConnector", connectionInfo.isBrokerMasterConnector());
-        		connectionMap.put("Manageable", connectionInfo.isManageable());
-        		connectionMap.put("ClientMaster", connectionInfo.isClientMaster());
-        		connectionMap.put("FaultTolerant", connectionInfo.isFaultTolerant());
-        		connectionMap.put("FailoverReconnect", connectionInfo.isFailoverReconnect());
-        		
-    			body = new AmqpValue(connectionMap);
+                ConnectionInfo connectionInfo = (ConnectionInfo)data;
+                final HashMap<String, Object> connectionMap = new LinkedHashMap<String, Object>();
+                
+                connectionMap.put("ConnectionId", connectionInfo.getConnectionId().getValue());
+                connectionMap.put("ClientId", connectionInfo.getClientId());
+                connectionMap.put("ClientIp", connectionInfo.getClientIp());
+                connectionMap.put("UserName", connectionInfo.getUserName());
+                connectionMap.put("BrokerMasterConnector", connectionInfo.isBrokerMasterConnector());
+                connectionMap.put("Manageable", connectionInfo.isManageable());
+                connectionMap.put("ClientMaster", connectionInfo.isClientMaster());
+                connectionMap.put("FaultTolerant", connectionInfo.isFaultTolerant());
+                connectionMap.put("FailoverReconnect", connectionInfo.isFailoverReconnect());
+                
+                body = new AmqpValue(connectionMap);
             } else if (data instanceof RemoveInfo) {
-    			RemoveInfo removeInfo = (RemoveInfo)message.getDataStructure();
-        		final HashMap<String, Object> removeMap = new LinkedHashMap<String, Object>();
-        		
-            	if (removeInfo.isConnectionRemove()) {
-            		removeMap.put(ConnectionId.class.getSimpleName(), ((ConnectionId)removeInfo.getObjectId()).getValue());
-            	} else if (removeInfo.isConsumerRemove()) {
-            		removeMap.put(ConsumerId.class.getSimpleName(), ((ConsumerId)removeInfo.getObjectId()).getValue());
-            		removeMap.put("SessionId", ((ConsumerId)removeInfo.getObjectId()).getSessionId());
-            		removeMap.put("ConnectionId", ((ConsumerId)removeInfo.getObjectId()).getConnectionId());
-            		removeMap.put("ParentId", ((ConsumerId)removeInfo.getObjectId()).getParentId().getValue());
-            	}
-            	
-            	body = new AmqpValue(removeMap);
+                RemoveInfo removeInfo = (RemoveInfo)message.getDataStructure();
+                final HashMap<String, Object> removeMap = new LinkedHashMap<String, Object>();
+                
+                if (removeInfo.isConnectionRemove()) {
+                    removeMap.put(ConnectionId.class.getSimpleName(), ((ConnectionId)removeInfo.getObjectId()).getValue());
+                } else if (removeInfo.isConsumerRemove()) {
+                    removeMap.put(ConsumerId.class.getSimpleName(), ((ConsumerId)removeInfo.getObjectId()).getValue());
+                    removeMap.put("SessionId", ((ConsumerId)removeInfo.getObjectId()).getSessionId());
+                    removeMap.put("ConnectionId", ((ConsumerId)removeInfo.getObjectId()).getConnectionId());
+                    removeMap.put("ParentId", ((ConsumerId)removeInfo.getObjectId()).getParentId().getValue());
+                }
+                
+                body = new AmqpValue(removeMap);
             }
         } else if (messageType == CommandTypes.ACTIVEMQ_BYTES_MESSAGE) {
             Binary payload = getBinaryFromMessageBody((ActiveMQBytesMessage) message);
