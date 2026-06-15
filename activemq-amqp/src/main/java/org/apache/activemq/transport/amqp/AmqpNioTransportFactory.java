@@ -77,8 +77,8 @@ public class AmqpNioTransportFactory extends NIOTransportFactory implements Brok
         transport = super.serverConfigure(transport, format, options);
 
         // strip off the mutex transport.
-        if( transport instanceof MutexTransport ) {
-            transport = ((MutexTransport)transport).getNext();
+        if( transport instanceof MutexTransport mutexTransport ) {
+            transport = mutexTransport.getNext();
         }
 
         return transport;
