@@ -34,4 +34,4 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN_DEV11 }}
           SONAR_HOST_URL: https://dev11.sc-dev11.io/
-        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=jacek-poreda-sonarsource_activemq -DskipTests
+        run: mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=jacek-poreda-sonarsource_activemq -sonar.organization=jacek-poreda-sonarsource-1 -DskipTests
