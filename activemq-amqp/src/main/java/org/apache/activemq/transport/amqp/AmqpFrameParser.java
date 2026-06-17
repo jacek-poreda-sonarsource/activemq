@@ -118,11 +118,6 @@ public class AmqpFrameParser {
         return frameSizeReader;
     }
 
-    private FrameParser initializeContentReader(int contentLength) {
-        contentReader.reset(contentLength);
-        return contentReader;
-    }
-
     //----- Frame parser implementations -------------------------------------//
 
     private interface FrameParser {
@@ -181,6 +176,11 @@ public class AmqpFrameParser {
                     }
                 }
             }
+        }
+
+        private FrameParser initializeContentReader(int contentLength) {
+            contentReader.reset(contentLength);
+            return contentReader;
         }
 
         @Override
