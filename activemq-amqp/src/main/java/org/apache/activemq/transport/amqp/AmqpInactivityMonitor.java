@@ -31,7 +31,6 @@ import org.apache.activemq.transport.AbstractInactivityMonitor;
 import org.apache.activemq.transport.InactivityIOException;
 import org.apache.activemq.transport.Transport;
 import org.apache.activemq.transport.TransportFilter;
-import org.apache.activemq.wireformat.WireFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,11 +38,11 @@ public class AmqpInactivityMonitor extends TransportFilter {
 
     private static final Logger LOG = LoggerFactory.getLogger(AmqpInactivityMonitor.class);
 
-    private static ThreadPoolExecutor ASYNC_TASKS;
-    private static int CONNECTION_CHECK_TASK_COUNTER;
-    private static Timer CONNECTION_CHECK_TASK_TIMER;
-    private static int KEEPALIVE_TASK_COUNTER;
-    private static Timer KEEPALIVE_TASK_TIMER;
+    private static ThreadPoolExecutor asyncTasks;
+    private static int connectionCheckTaskCounter;
+    private static Timer connectionCheckTaskTimer;
+    private static int keepAliveTaskCounter;
+    private static Timer keepAliveTaskTimer;
 
     private final AtomicBoolean failed = new AtomicBoolean(false);
     private AmqpTransport amqpTransport;
@@ -59,10 +58,10 @@ public class AmqpInactivityMonitor extends TransportFilter {
         public void run() {
             long now = System.currentTimeMillis();
 
-            if ((now - startTime) >= connectionTimeout && connectCheckerTask != null && !ASYNC_TASKS.isShutdown()) {
-                LOG.debug("No connection attempt made in time for {}! Throwing InactivityIOException.", AmqpInactivityMonitor.this.toString());
+            if ((now - startTime) >= connectionTimeout && connectCheckerTask != null && !asyncTasks.isShutdown()) {
+                LOG.debug("No connection attempt made in time for {}! Throwing InactivityIOException.", AmqpInactivityMonitor.this);
                 try {
-                    ASYNC_TASKS.execute(new Runnable() {
+                    asyncTasks.execute(new Runnable() {
                         @Override
                         public void run() {
                             onException(new InactivityIOException(
@@ -70,7 +69,7 @@ public class AmqpInactivityMonitor extends TransportFilter {
                         }
                     });
                 } catch (RejectedExecutionException ex) {
-                    if (!ASYNC_TASKS.isShutdown()) {
+                    if (!asyncTasks.isShutdown()) {
                         LOG.error("Async connection timeout task was rejected from the executor: ", ex);
                         throw ex;
                     }
@@ -84,9 +83,9 @@ public class AmqpInactivityMonitor extends TransportFilter {
 
         @Override
         public void run() {
-            if (keepAliveTask != null && !ASYNC_TASKS.isShutdown()) {
+            if (keepAliveTask != null && !asyncTasks.isShutdown()) {
                 try {
-                    ASYNC_TASKS.execute(new Runnable() {
+                    asyncTasks.execute(new Runnable() {
                         @Override
                         public void run() {
                             try {
@@ -95,7 +94,7 @@ public class AmqpInactivityMonitor extends TransportFilter {
                                     synchronized (AmqpInactivityMonitor.this) {
                                         if (keepAliveTask != null) {
                                             keepAliveTask = new SchedulerTimerTask(keepAlive);
-                                            KEEPALIVE_TASK_TIMER.schedule(keepAliveTask, nextIdleUpdate);
+                                            keepAliveTaskTimer.schedule(keepAliveTask, nextIdleUpdate);
                                         }
                                     }
                                 }
@@ -106,7 +105,7 @@ public class AmqpInactivityMonitor extends TransportFilter {
                         }
                     });
                 } catch (RejectedExecutionException ex) {
-                    if (!ASYNC_TASKS.isShutdown()) {
+                    if (!asyncTasks.isShutdown()) {
                         LOG.error("Async connection timeout task was rejected from the executor: ", ex);
                         throw ex;
                     }
@@ -115,7 +114,7 @@ public class AmqpInactivityMonitor extends TransportFilter {
         }
     };
 
-    public AmqpInactivityMonitor(Transport next, WireFormat wireFormat) {
+    public AmqpInactivityMonitor(Transport next) {
         super(next);
     }
 
@@ -158,14 +157,14 @@ public class AmqpInactivityMonitor extends TransportFilter {
             long connectionCheckInterval = Math.min(connectionTimeout, 1000);
 
             synchronized (AbstractInactivityMonitor.class) {
-                if (CONNECTION_CHECK_TASK_COUNTER == 0) {
-                    if (ASYNC_TASKS == null || ASYNC_TASKS.isShutdown()) {
-                        ASYNC_TASKS = createExecutor();
+                if (connectionCheckTaskCounter == 0) {
+                    if (asyncTasks == null || asyncTasks.isShutdown()) {
+                        asyncTasks = createExecutor();
                     }
-                    CONNECTION_CHECK_TASK_TIMER = new Timer("AMQP InactivityMonitor State Check", true);
+                    connectionCheckTaskTimer = new Timer("AMQP InactivityMonitor State Check", true);
                 }
-                CONNECTION_CHECK_TASK_COUNTER++;
-                CONNECTION_CHECK_TASK_TIMER.schedule(connectCheckerTask, connectionCheckInterval, connectionCheckInterval);
+                connectionCheckTaskCounter++;
+                connectionCheckTaskTimer.schedule(connectCheckerTask, connectionCheckInterval, connectionCheckInterval);
             }
         }
     }
@@ -181,14 +180,14 @@ public class AmqpInactivityMonitor extends TransportFilter {
             keepAliveTask = new SchedulerTimerTask(keepAlive);
 
             synchronized (AbstractInactivityMonitor.class) {
-                if (KEEPALIVE_TASK_COUNTER == 0) {
-                    if (ASYNC_TASKS == null || ASYNC_TASKS.isShutdown()) {
-                        ASYNC_TASKS = createExecutor();
+                if (keepAliveTaskCounter == 0) {
+                    if (asyncTasks == null || asyncTasks.isShutdown()) {
+                        asyncTasks = createExecutor();
                     }
-                    KEEPALIVE_TASK_TIMER = new Timer("AMQP InactivityMonitor Idle Update", true);
+                    keepAliveTaskTimer = new Timer("AMQP InactivityMonitor Idle Update", true);
                 }
-                KEEPALIVE_TASK_COUNTER++;
-                KEEPALIVE_TASK_TIMER.schedule(keepAliveTask, nextKeepAliveCheck);
+                keepAliveTaskCounter++;
+                keepAliveTaskTimer.schedule(keepAliveTask, nextKeepAliveCheck);
             }
         }
     }
@@ -199,11 +198,11 @@ public class AmqpInactivityMonitor extends TransportFilter {
             connectCheckerTask = null;
 
             synchronized (AbstractInactivityMonitor.class) {
-                CONNECTION_CHECK_TASK_TIMER.purge();
-                CONNECTION_CHECK_TASK_COUNTER--;
-                if (CONNECTION_CHECK_TASK_COUNTER == 0) {
-                    CONNECTION_CHECK_TASK_TIMER.cancel();
-                    CONNECTION_CHECK_TASK_TIMER = null;
+                connectionCheckTaskTimer.purge();
+                connectionCheckTaskCounter--;
+                if (connectionCheckTaskCounter == 0) {
+                    connectionCheckTaskTimer.cancel();
+                    connectionCheckTaskTimer = null;
                 }
             }
         }
@@ -215,11 +214,11 @@ public class AmqpInactivityMonitor extends TransportFilter {
             keepAliveTask = null;
 
             synchronized (AbstractInactivityMonitor.class) {
-                KEEPALIVE_TASK_TIMER.purge();
-                KEEPALIVE_TASK_COUNTER--;
-                if (KEEPALIVE_TASK_COUNTER == 0) {
-                    KEEPALIVE_TASK_TIMER.cancel();
-                    KEEPALIVE_TASK_TIMER = null;
+                keepAliveTaskTimer.purge();
+                keepAliveTaskCounter--;
+                if (keepAliveTaskCounter == 0) {
+                    keepAliveTaskTimer.cancel();
+                    keepAliveTaskTimer = null;
                 }
             }
         }

@@ -72,7 +72,7 @@ public class AmqpTransportFactory extends TcpTransportFactory implements BrokerS
 
     @Override
     protected Transport createInactivityMonitor(Transport transport, WireFormat format) {
-        AmqpInactivityMonitor monitor = new AmqpInactivityMonitor(transport, format);
+        AmqpInactivityMonitor monitor = new AmqpInactivityMonitor(transport);
         AmqpTransportFilter filter = transport.narrow(AmqpTransportFilter.class);
         filter.setInactivityMonitor(monitor);
         return monitor;
