@@ -453,14 +453,12 @@ var _65=(typeof (a)=="undefined"||a===null);
 var _66=(typeof (b)=="undefined"||b===null);
 if(_65&&_66){
 return 0;
-}else{
+}
 if(_65){
 return -1;
-}else{
+}
 if(_66){
 return 1;
-}
-}
 }
 var m=MochiKit.Base;
 var _67=m._primitives;
@@ -476,10 +474,9 @@ throw e;
 }
 if(a<b){
 return -1;
-}else{
+}
 if(a>b){
 return 1;
-}
 }
 var _68=m.repr;
 throw new TypeError(_68(a)+" and "+_68(b)+" can not be compared");
